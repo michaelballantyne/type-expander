@@ -419,6 +419,9 @@ rename transformer, a match expander and a type expander, for example. Such an
 identifier would have to implement the @tc[prop:rename-transformer],
 @tc[prop:match-expander] and @tc[prop:type-expander] properties, respectively.
 
+@chunk[<type-expander-environment>
+       (define type-expander-environment (make-free-id-table))]
+
 @chunk[<prop:type-expander>
        (define-values (prop:type-expander
                        has-prop:type-expander?
@@ -526,8 +529,8 @@ which are bound to type expanders. These fall into three cases:
   @racket[(tl-redirections)] binding table.}
  @item{The identifier has been patched via @racket[patch-type-expander], i.e.
   a type expander has been globally attached to an existing identifier, in which
-  case the type expander is stored within the @racket[patched] free identifier
-  table.}]
+  case the type expander is stored within the @racket[type-expander-environment]
+  free identifier table.}]
 
 @chunk[<expand-type-syntax-classes>
        (define-syntax-class type-expander
@@ -544,7 +547,7 @@ which are bound to type expanders. These fall into three cases:
                                                        #f))
                   #:with code #'expander)
          (pattern patched-expander:id
-                  #:when (let ([p (free-id-table-ref patched
+                  #:when (let ([p (free-id-table-ref type-expander-environment
                                                      #'patched-expander
                                                      #f)])
                            (and p (has-prop:type-expander? p)))
@@ -597,7 +600,8 @@ one of the three possible ways described above.
                         (let ([slv (syntax-local-value type-expander-id
                                                        (λ () #f))])
                           (and (has-prop:type-expander? slv) slv))
-                        (free-id-table-ref patched type-expander-id #f))]
+                        (free-id-table-ref type-expander-environment
+                                           type-expander-id #f))]
                [ctxx (make-syntax-introducer)])
            <apply-type-expander-checks>
            (ctxx (((get-prop:type-expander-value val) val) (ctxx stx)))))]
@@ -620,16 +624,13 @@ As explained above, existing identifiers which are provided by other libraries
 can be ``patched'' so that they behave like type expanders, using a global
 table associating existing identifiers to the corresponding expander code:
 
-@chunk[<patched>
-       (define patched (make-free-id-table))]
-
 @CHUNK[<patch>
        (define-syntax patch-type-expander
          (syntax-parser
            [(_ id:id expander-expr:expr)
             #`(begin
                 (begin-for-syntax
-                  (free-id-table-set! patched
+                  (free-id-table-set! type-expander-environment
                                       #'id
                                       (type-expander #,(syntax/loc this-syntax
                                                          expander-expr)))))]))]
@@ -810,10 +811,9 @@ called in the same way.
        [expander:type-expander
         #:when (not applicable?)
         (rule id-expander/not-applicable
-          (let ([ctxx (make-syntax-introducer)])
-            (expand-type (ctxx (apply-type-expander #'expander.code
-                                                    (ctxx #'expander)))
-                         applicable?)))]]
+              (expand-type (apply-type-expander #'expander.code
+                                                #'expander)
+                           applicable?))]]
 
 When a type expander is found in an applicable position, it is returned
 without modification, so that the containing application form may expand it
@@ -835,10 +835,9 @@ use of another type expander.
 @CHUNK[<expand-type-case-app-expander>
        [(~and expander-call-stx (expander:type-expander . _))
         (rule app-expander
-          (let ([ctxx (make-syntax-introducer)])
-            (expand-type (ctxx (apply-type-expander #'expander.code
-                                                    (ctxx #'expander-call-stx)))
-                         applicable?)))]]
+              (expand-type (apply-type-expander #'expander.code
+                                                #'expander-call-stx)
+                           applicable?))]]
 
 When a form of the shape @racket[(_f . _args)] is encountered, and the
 @racket[_f] element is not a type expander, the @racket[_f] form is expanded,
@@ -1854,16 +1853,16 @@ will be written in @tc[racket], not @tc[typed/racket]).
                   stx-type/c
                   type-expand!
                   debug-type-expander?
-                  patched
+                  type-expander-environment
                   make-type-expander)
+
+         <type-expander-environment>
 
          <remove-ddd>
          
          <prop-guard>
          <prop:type-expander>
          <type-expander-struct>
-
-         <patched>
          
          <apply-type-expander>
          ;<expand-quasiquote>
