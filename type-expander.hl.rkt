@@ -420,7 +420,16 @@ identifier would have to implement the @tc[prop:rename-transformer],
 @tc[prop:match-expander] and @tc[prop:type-expander] properties, respectively.
 
 @chunk[<type-expander-environment>
-       (define type-expander-environment (make-free-id-table))]
+       (define type-expander-environment (make-free-id-table))
+       (define (lookup-type-expander type-expander-id)
+         (or (binding-table-find-best (tl-redirections)
+                                                 type-expander-id
+                                                 #f)
+             (let ([slv (syntax-local-value type-expander-id
+                                            (λ () #f))])
+               (and (has-prop:type-expander? slv) slv))
+             (free-id-table-ref type-expander-environment
+                                type-expander-id #f)))]
 
 @chunk[<prop:type-expander>
        (define-values (prop:type-expander
@@ -534,27 +543,9 @@ which are bound to type expanders. These fall into three cases:
 
 @chunk[<expand-type-syntax-classes>
        (define-syntax-class type-expander
-         (pattern local-expander:id
-                  #:when (let ([b (binding-table-find-best (tl-redirections)
-                                                           #'local-expander
-                                                           #f)])
-                           (and b (has-prop:type-expander? b)))
-                  #:with code #'local-expander)
-         (pattern (~var expander
-                        (static has-prop:type-expander? "a type expander"))
-                  #:when (not (binding-table-find-best (tl-redirections)
-                                                       #'expander
-                                                       #f))
-                  #:with code #'expander)
-         (pattern patched-expander:id
-                  #:when (let ([p (free-id-table-ref type-expander-environment
-                                                     #'patched-expander
-                                                     #f)])
-                           (and p (has-prop:type-expander? p)))
-                  #:when (not (binding-table-find-best (tl-redirections)
-                                                       #'expander
-                                                       #f))
-                  #:with code #'patched-expander))]
+         (pattern type-expander-id:id
+                  #:when (lookup-type-expander #'type-expander-id)
+                  #:with code #'type-expander-id))]
 
 We also define a syntax class which matches types. Since types can bear many
 complex cases, and can call type expanders which may accept arbitrary syntax,
@@ -594,16 +585,12 @@ one of the three possible ways described above.
 @chunk[<apply-type-expander>
        (define/contract (apply-type-expander type-expander-id stx)
          (-> identifier? syntax? syntax?)
-         (let ([val (or (binding-table-find-best (tl-redirections)
-                                                 type-expander-id
-                                                 #f)
-                        (let ([slv (syntax-local-value type-expander-id
-                                                       (λ () #f))])
-                          (and (has-prop:type-expander? slv) slv))
-                        (free-id-table-ref type-expander-environment
-                                           type-expander-id #f))]
+         (let ([val (lookup-type-expander type-expander-id)]
                [ctxx (make-syntax-introducer)])
            <apply-type-expander-checks>
+           #;(local-apply-transformer ((get-prop:type-expander-value val) val)
+                                    stx
+                                    'expression)
            (ctxx (((get-prop:type-expander-value val) val) (ctxx stx)))))]
 
 The @racket[apply-type-expander] function checks that its
@@ -1021,9 +1008,8 @@ an error).
 @chunk[<eval-anonymous-expander-code>
        (trampoline-eval
         #'(λ (stx)
-            (define ctxx (make-syntax-introducer))
-            (ctxx (auto-syntax-case (ctxx (stx-cdr stx)) ()
-                    [formals (let () . body)]))))]
+            (auto-syntax-case (stx-cdr stx) ()
+                              [formals (let () . body)])))]
 
 This case works by locally binding a fresh identifier @racket[tmp] to a type
 expander, and then applying that type expander. It would also be possible to
@@ -1830,6 +1816,7 @@ will be written in @tc[racket], not @tc[typed/racket]).
                   racket/syntax
                   syntax/id-table
                   syntax/stx
+                  syntax/apply-transformer
                   auto-syntax-e
                   "parameterize-lexical-context.rkt"
                   debug-scopes
