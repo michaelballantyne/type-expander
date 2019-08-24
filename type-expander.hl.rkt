@@ -1244,7 +1244,7 @@ Before expanding a term, it is printed:
          (printf "~a~a ~a"
                  (make-string (indent) #\ )
                  applicable?
-                 stx))]
+                 (+scopes stx)))]
 
 Once the term has been expanded, the original term and the expanded term are
 printed:
@@ -1254,9 +1254,9 @@ printed:
          (printf "~a~a ~a\n~a=> ~a (case: ~a)\n"
                  (make-string (indent) #\ )
                  applicable?
-                 stx
+                 (+scopes stx)
                  (make-string (indent) #\ )
-                 (car result)
+                 (+scopes (car result))
                  (cdr result))
          (when (= (indent) 0)
            (print-full-scopes)))
