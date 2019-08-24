@@ -1879,15 +1879,10 @@ We can finally define the overloaded forms, as well as the
                   syntax/parse/define
                   "identifiers.rkt")
          
-         (require (submod ".." expander))
          (require (for-syntax (submod ".." expander)))
          (require (for-syntax typed-racket/base-env/annotate-classes))
 
-         (provide prop:type-expander
-                  prop:type-expander?
-                  prop:type-expander-ref
-                  expand-type
-                  define-type-expander
+         (provide define-type-expander
                   patch-type-expander
                   Let
                   Letrec
