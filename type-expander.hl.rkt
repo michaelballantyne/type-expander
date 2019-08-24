@@ -423,7 +423,7 @@ identifier would have to implement the @tc[prop:rename-transformer],
        (define patched (make-free-id-table))
        (define the-def-ctx (make-parameter #f))
        (define (lookup-type-expander type-expander-id)
-         (or (let ([slv (syntax-local-value type-expander-id
+         (or (let ([slv (syntax-local-value (internal-definition-context-introduce (the-def-ctx) type-expander-id 'add)
                                             (λ () #f)
                                             (the-def-ctx))])
                (and (has-prop:type-expander? slv) slv))
@@ -812,6 +812,8 @@ many different cases.
             ((λ (result) <expand-type-debug-after>)
              (parameterize (<expand-type-debug-indent>)
                <expand-type-debug-rules>
+               #;(when (identifier? stx)
+                 (pretty-write (syntax-debug-info (syntax-local-introduce stx))))
                (syntax-parse stx
                  <expand-type-case-:>
                  <expand-type-case-expander>
@@ -974,7 +976,7 @@ described later.
           <app-args-error>)
         (rule app-∀
           (with-bindings [(tvar …) (stx-map (λ (a) (make-type-expander (λ (_) a)))
-                                                #'(arg …))]
+                                                (syntax-local-introduce #'(arg …)))]
                              τ
                 (expand-type #'τ applicable?)))]]
 
@@ -1242,7 +1244,7 @@ Before expanding a term, it is printed:
          (printf "~a~a ~a"
                  (make-string (indent) #\ )
                  applicable?
-                 (+scopes stx)))]
+                 stx))]
 
 Once the term has been expanded, the original term and the expanded term are
 printed:
@@ -1252,9 +1254,9 @@ printed:
          (printf "~a~a ~a\n~a=> ~a (case: ~a)\n"
                  (make-string (indent) #\ )
                  applicable?
-                 (+scopes stx)
+                 stx
                  (make-string (indent) #\ )
-                 (+scopes (car result))
+                 (car result)
                  (cdr result))
          (when (= (indent) 0)
            (print-full-scopes)))
@@ -1889,6 +1891,7 @@ will be written in @tc[racket], not @tc[typed/racket]).
                   syntax/id-table
                   syntax/stx
                   syntax/apply-transformer
+                  racket/pretty
                   auto-syntax-e
                   ;"parameterize-lexical-context.rkt"
                   debug-scopes
