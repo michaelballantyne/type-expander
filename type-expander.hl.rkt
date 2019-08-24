@@ -423,13 +423,14 @@ identifier would have to implement the @tc[prop:rename-transformer],
        (define patched (make-free-id-table))
        (define (lookup-type-expander type-expander-id)
          (or (binding-table-find-best (tl-redirections)
-                                                 type-expander-id
+                                                 (syntax-local-introduce type-expander-id)
                                                  #f)
              (let ([slv (syntax-local-value type-expander-id
                                             (λ () #f))])
                (and (has-prop:type-expander? slv) slv))
              (free-id-table-ref patched
-                                type-expander-id #f)))
+                                (syntax-local-introduce type-expander-id)
+                                #f)))
 
 
 
@@ -505,7 +506,10 @@ identifier would have to implement the @tc[prop:rename-transformer],
                                     (syntax->list #'vs))
                (for ([binding (in-syntax #'vs)]
                      [value es])
-                 (binding-table-set! (tl-redirections) (ctx binding) value))
+                 (binding-table-set! (tl-redirections)
+                                     (ctx (syntax-local-identifier-as-binding
+                                             (syntax-local-introduce binding)))
+                                     value))
                (with-syntax ([(vs x)
                               (ctx #'(vs x))])
                  code ...)))]))
@@ -526,14 +530,15 @@ identifier would have to implement the @tc[prop:rename-transformer],
                      [stx-value (in-syntax #'es)])
                  (let ([vvv (func (ctx stx-value))])
                    (binding-table-set! (tl-redirections)
-                                       (ctx binding)
+                                       (ctx (syntax-local-identifier-as-binding
+                                             (syntax-local-introduce binding)))
                                        vvv)))
                (with-syntax ([(vs x)
                               (ctx2 (ctx #'(vs x)))])
                  code ...)))]))
 
        (define (trampoline-eval codee)
-         (syntax-local-eval (syntax-local-introduce codee)))
+         (syntax-local-eval codee))
        
        (provide
 
