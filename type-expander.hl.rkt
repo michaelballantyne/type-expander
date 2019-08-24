@@ -423,7 +423,7 @@ identifier would have to implement the @tc[prop:rename-transformer],
        (define patched (make-free-id-table))
        (define the-def-ctx (make-parameter #f))
        (define (lookup-type-expander type-expander-id)
-         (or (let ([slv (syntax-local-value (internal-definition-context-introduce (the-def-ctx) type-expander-id 'add)
+         (or (let ([slv (syntax-local-value type-expander-id
                                             (λ () #f)
                                             (the-def-ctx))])
                (and (has-prop:type-expander? slv) slv))
@@ -935,18 +935,18 @@ modified environment. The result is wrapped again with
         #:when (not applicable?)
         (rule just-∀/not-applicable
           (with-syntax ([(tvar-vars-only …) (remove-ddd #'(tvar …))])
-            (with-bindings [(tvar-vars-only …) (stx-map <shadowed>
+            (with-bindings [(tvar-vars-only …) (stx-map shadow-type-var
                                                         #'(tvar-vars-only …))]
                            (T tvar …)
               #`(∀ (tvar …)
                    #,(expand-type #'T #f)))))]]
 
-Where @racket[<shadowed>] is used to bind the type variables @racket[tvarᵢ] to
+Where @racket[shadow-type-var] is used to bind the type variables @racket[tvarᵢ] to
 @racket[(No-Expand tvarᵢ)], so that their occurrences are left intact by the
 type expander:
 
 @CHUNK[<shadowed>
-       (λ (__τ)
+       (define (shadow-type-var __τ)
          (make-type-expander
           (λ (stx)
             (syntax-case stx ()
@@ -1014,7 +1014,7 @@ behaviour from @racketmodname[typed/racket]'s @tc[Rec].
 @CHUNK[<expand-type-case-Rec>
        [((~literal Rec) R:id T:type)
         (rule Rec
-          #`(Rec R #,(with-bindings [R (<shadowed> #'R)]
+          #`(Rec R #,(with-bindings [R (shadow-type-var #'R)]
                                         T
                            (expand-type #'T #f))))]]
 
@@ -1451,7 +1451,7 @@ definitions.
             #:with (tvar-not-ooo …) (filter (λ (tv) (not (free-identifier=? tv #'(… …))))
                                             (syntax->list #'(tvar …)))
             (start-tl-redirections
-             (with-bindings [(tvar-not-ooo …) (stx-map <shadowed>
+             (with-bindings [(tvar-not-ooo …) (stx-map shadow-type-var
                                                        #'(tvar-not-ooo …))]
                             whole-rest
                (syntax-parse #'whole-rest
@@ -1920,10 +1920,12 @@ will be written in @tc[racket], not @tc[typed/racket]).
                   type-expand!
                   debug-type-expander?
                   patched
-                  make-type-expander)
+                  make-type-expander
+                  shadow-type-var)
 
          <type-expander-environment>
-
+         <shadowed>
+         
          <remove-ddd>
          
          <prop-guard>
@@ -2005,7 +2007,7 @@ We can finally define the overloaded forms, as well as the
                          {~parse (({~var tv tv-stxclass}) pat ...)
                           ;; rebind tvars:
                           (with-bindings [(tmp-tv.vars (... ...))
-                                          (stx-map <shadowed>
+                                          (stx-map shadow-type-var
                                                    #'(tmp-tv.vars (... ...)))]
                                          ;; rebind occurrences of the tvars within:
                                          (tmp-tv whole-rest (... ...))
