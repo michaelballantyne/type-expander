@@ -420,7 +420,7 @@ identifier would have to implement the @tc[prop:rename-transformer],
 @tc[prop:match-expander] and @tc[prop:type-expander] properties, respectively.
 
 @CHUNK[<type-expander-environment>
-       (define type-expander-environment (make-free-id-table))
+       (define patched (make-free-id-table))
        (define (lookup-type-expander type-expander-id)
          (or (binding-table-find-best (tl-redirections)
                                                  type-expander-id
@@ -428,7 +428,7 @@ identifier would have to implement the @tc[prop:rename-transformer],
              (let ([slv (syntax-local-value type-expander-id
                                             (λ () #f))])
                (and (has-prop:type-expander? slv) slv))
-             (free-id-table-ref type-expander-environment
+             (free-id-table-ref patched
                                 type-expander-id #f)))
 
 
@@ -532,16 +532,8 @@ identifier would have to implement the @tc[prop:rename-transformer],
                               (ctx2 (ctx #'(vs x)))])
                  code ...)))]))
 
-       (define trampoline-result (make-parameter #f))
        (define (trampoline-eval codee)
-         (define result 'not-yet-result)
-         (parameterize ([trampoline-result (λ (v) (set! result v))])
-           (local-expand (syntax-local-introduce
-                          #`(let-syntax ([tr ((trampoline-result) #,codee)])
-                              (void)))
-                         'expression
-                         '()))
-         result)
+         (syntax-local-eval (syntax-local-introduce codee)))
        
        (provide with-bindings
          with-rec-bindings
@@ -660,7 +652,7 @@ which are bound to type expanders. These fall into three cases:
   @racket[(tl-redirections)] binding table.}
  @item{The identifier has been patched via @racket[patch-type-expander], i.e.
   a type expander has been globally attached to an existing identifier, in which
-  case the type expander is stored within the @racket[type-expander-environment]
+  case the type expander is stored within the @racket[patched]
   free identifier table.}]
 
 @chunk[<expand-type-syntax-classes>
@@ -739,7 +731,7 @@ table associating existing identifiers to the corresponding expander code:
            [(_ id:id expander-expr:expr)
             #`(begin
                 (begin-for-syntax
-                  (free-id-table-set! type-expander-environment
+                  (free-id-table-set! patched
                                       #'id
                                       (type-expander #,(syntax/loc this-syntax
                                                          expander-expr)))))]))]
@@ -1966,7 +1958,7 @@ will be written in @tc[racket], not @tc[typed/racket]).
                   stx-type/c
                   type-expand!
                   debug-type-expander?
-                  type-expander-environment
+                  patched
                   make-type-expander)
 
          <type-expander-environment>
