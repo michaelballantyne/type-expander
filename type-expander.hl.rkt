@@ -421,72 +421,19 @@ identifier would have to implement the @tc[prop:rename-transformer],
 
 @CHUNK[<type-expander-environment>
        (define patched (make-free-id-table))
+       (define the-def-ctx (make-parameter #f))
        (define (lookup-type-expander type-expander-id)
-         (or (binding-table-find-best (tl-redirections)
-                                                 (syntax-local-introduce type-expander-id)
-                                                 #f)
-             (let ([slv (syntax-local-value type-expander-id
-                                            (λ () #f))])
+         (or (let ([slv (syntax-local-value type-expander-id
+                                            (λ () #f)
+                                            (the-def-ctx))])
                (and (has-prop:type-expander? slv) slv))
              (free-id-table-ref patched
-                                (syntax-local-introduce type-expander-id)
+                                type-expander-id
                                 #f)))
 
-
-
-       (struct binding-table-struct (val))
-
-       (define/contract tl-redirections
-         (parameter/c (or/c binding-table-struct? #f))
-         (make-parameter #f))
-
-       (define (make-binding-table)
-         (-> binding-table-struct?)
-         (binding-table-struct (make-hasheq)))
-
-       (define/contract (binding-table-set! table id value)
-         (-> binding-table-struct? identifier? any/c void?)
-         (let ([group (hash-ref! (binding-table-struct-val table)
-                                 (syntax-e id)
-                                 (make-bound-id-table))])
-           (when (dict-has-key? group id)
-             (raise-syntax-error
-              'type-expander
-              "Attempted to re-bind the same identifier with the same scopes"
-              id))
-           (bound-id-table-set! group id value)))
-
-       (define (binding-table-find-best table id fallback)
-         (-> binding-table-struct? identifier? (or/c procedure? any/c) void?)
-         (define (scopes-of i)
-           (list->set (map (λ (v) (vector-ref v 0))
-                           (hash-ref (syntax-debug-info i) 'context))))
-         (define scopes-of-id (scopes-of id))
-         (let* ([group (hash-ref (binding-table-struct-val table)
-                                 (syntax-e id)
-                                 (λ () (make-bound-id-table)))]
-                [candidates (filter (λ (other)
-                                      (subset? (car other) scopes-of-id))
-                                    (bound-id-table-map group
-                                                        (λ (a b)
-                                                          (list (scopes-of a) a b))))])
-           (if (= 0 (length candidates))
-               (if (procedure? fallback)
-                   (fallback)
-                   fallback)
-               (let* ([best-candidate (argmax (λ (c) (set-count (car c)))
-                                              candidates)])
-                 (for ([c candidates])
-                   (unless (subset? (car c) (car best-candidate))
-                     (raise-syntax-error 'type-expander
-                                         (format "Ambiguous bindings: ~a"
-                                                 (map (λ (c) (list (cadr c) (car c)))
-                                                      candidates)))))
-                 (caddr best-candidate)))))
-
        (define-syntax-rule (start-tl-redirections . rest)
-         (parameterize ([tl-redirections (or (tl-redirections)
-                                             (make-binding-table))])
+         (parameterize ([the-def-ctx (or (the-def-ctx)
+                                         (syntax-local-make-definition-context))])
            . rest))
 
        (define-syntax-rule (f-start-tl-redirections f)
@@ -506,12 +453,14 @@ identifier would have to implement the @tc[prop:rename-transformer],
                                     (syntax->list #'vs))
                (for ([binding (in-syntax #'vs)]
                      [value es])
-                 (binding-table-set! (tl-redirections)
-                                     (ctx (syntax-local-identifier-as-binding
-                                             (syntax-local-introduce binding)))
-                                     value))
+                 (syntax-local-bind-syntaxes (list (ctx binding))
+                                             (if (syntax? value) value #`'#,value)
+                                             (the-def-ctx)))
                (with-syntax ([(vs x)
-                              (ctx #'(vs x))])
+                              (internal-definition-context-introduce
+                               (the-def-ctx)
+                               (ctx #'(vs x))
+                               'add)])
                  code ...)))]))
 
        (define-syntax with-rec-bindings
@@ -526,15 +475,19 @@ identifier would have to implement the @tc[prop:rename-transformer],
                (invariant-assertion (λ (ll) (and (list? ll)
                                                  (andmap identifier? ll)))
                                     (syntax->list #'vs))
+               (define (add-scopes stx)
+                 (ctx (internal-definition-context-introduce (the-def-ctx)
+                                                             stx
+                                                             'add)
+                      'add))
                (for ([binding (in-syntax #'vs)]
                      [stx-value (in-syntax #'es)])
-                 (let ([vvv (func (ctx stx-value))])
-                   (binding-table-set! (tl-redirections)
-                                       (ctx (syntax-local-identifier-as-binding
-                                             (syntax-local-introduce binding)))
-                                       vvv)))
+                 (let ([vvv (func (add-scopes stx-value))])
+                   (syntax-local-bind-syntaxes (list (ctx binding))
+                                             (if (syntax? vvv) vvv #`'#,vvv)
+                                             (the-def-ctx))))
                (with-syntax ([(vs x)
-                              (ctx2 (ctx #'(vs x)))])
+                              (ctx2 (add-scopes #'(vs x)))])
                  code ...)))]))
 
        (define (trampoline-eval codee)
@@ -707,10 +660,10 @@ one of the three possible ways described above.
          (let ([val (lookup-type-expander type-expander-id)]
                [ctxx (make-syntax-introducer)])
            <apply-type-expander-checks>
-           #;(local-apply-transformer ((get-prop:type-expander-value val) val)
+           (local-apply-transformer ((get-prop:type-expander-value val) val)
                                     stx
                                     'expression)
-           (ctxx (((get-prop:type-expander-value val) val) (ctxx stx)))))]
+           #;(ctxx (((get-prop:type-expander-value val) val) (ctxx stx)))))]
 
 The @racket[apply-type-expander] function checks that its
 @racket[type-expander-id] argument is indeed a type expander before attempting
