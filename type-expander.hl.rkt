@@ -535,14 +535,14 @@ identifier would have to implement the @tc[prop:rename-transformer],
        (define (trampoline-eval codee)
          (syntax-local-eval (syntax-local-introduce codee)))
        
-       (provide with-bindings
-         with-rec-bindings
-         tl-redirections
-         start-tl-redirections
-         f-start-tl-redirections
-         binding-table-find-best
-         binding-table-set!
-         make-binding-table)
+       (provide
+
+        with-bindings
+        with-rec-bindings
+        
+        start-tl-redirections
+        f-start-tl-redirections
+        )
        ]
 
 @chunk[<prop:type-expander>
