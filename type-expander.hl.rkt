@@ -1893,7 +1893,6 @@ will be written in @tc[racket], not @tc[typed/racket]).
                   syntax/apply-transformer
                   racket/pretty
                   auto-syntax-e
-                  ;"parameterize-lexical-context.rkt"
                   debug-scopes
                   racket/contract/base
                   (for-syntax racket/base
@@ -1953,7 +1952,6 @@ We can finally define the overloaded forms, as well as the
                               syntax/parse
                               syntax/parse/experimental/template
                               syntax/id-table
-                              ;"parameterize-lexical-context.rkt"
                               syntax/stx)
                   (for-meta 2 racket/base syntax/parse)
                   "utils.rkt"
