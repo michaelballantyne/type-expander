@@ -439,6 +439,29 @@ identifier would have to implement the @tc[prop:rename-transformer],
        (define-syntax-rule (f-start-tl-redirections f)
          (λ l (start-tl-redirections (apply f l))))
 
+       (define (to-syntax v)
+         (if (syntax? v) v #`#,v))
+
+       (define (with-bindings-f vs es x)
+         (define sc (make-syntax-introducer))
+
+         (invariant-assertion (λ (ll) (and (list? ll)
+                                           (andmap identifier? ll)))
+                              (syntax->list vs))
+
+         (define (add-scopes stx)
+           (internal-definition-context-introduce
+             (the-def-ctx)
+             (sc stx 'add)
+             'add))
+
+         (for ([binding (in-syntax vs)]
+               [value es])
+           (syntax-local-bind-syntaxes (list (add-scopes binding))
+                                       (to-syntax value)
+                                       (the-def-ctx)))
+         (map add-scopes
+              (list vs x)))
 
        (define-syntax with-bindings
          (syntax-parser
@@ -446,22 +469,31 @@ identifier would have to implement the @tc[prop:rename-transformer],
             #:with vs (if (attribute ooo) #'(v* ooo) #'(v1))
             #:with es (if (attribute ooo) #'e/es #'(list e/es))
             (template
-             (let ()
-               (define ctx (make-syntax-introducer))
-               (invariant-assertion (λ (ll) (and (list? ll)
-                                                 (andmap identifier? ll)))
-                                    (syntax->list #'vs))
-               (for ([binding (in-syntax #'vs)]
-                     [value es])
-                 (syntax-local-bind-syntaxes (list (ctx binding))
-                                             (if (syntax? value) value #`'#,value)
-                                             (the-def-ctx)))
-               (with-syntax ([(vs x)
-                              (internal-definition-context-introduce
-                               (the-def-ctx)
-                               (ctx #'(vs x))
-                               'add)])
-                 code ...)))]))
+              (with-syntax ([(vs x) (with-bindings-f #'vs es #'x)])
+                  code ...))]))
+
+       (define (with-rec-bindings-f vs es x func)
+         (define sc1 (make-syntax-introducer))
+         (define sc2 (make-syntax-introducer))
+
+         (invariant-assertion (λ (ll) (and (list? ll)
+                                           (andmap identifier? ll)))
+                              (syntax->list vs))
+
+         (define (add-scopes stx)
+           (internal-definition-context-introduce
+             (the-def-ctx)
+             (sc1 stx 'add)
+             'add))
+
+         (for ([binding (in-syntax vs)]
+               [stx-value (in-syntax es)])
+           (let ([value (func (add-scopes stx-value))])
+             (syntax-local-bind-syntaxes (list (add-scopes binding))
+                                         (to-syntax value)
+                                         (the-def-ctx))))
+         (map (lambda (stx) (sc2 (add-scopes stx)))
+              (list vs x)))
 
        (define-syntax with-rec-bindings
          (syntax-parser
@@ -469,35 +501,17 @@ identifier would have to implement the @tc[prop:rename-transformer],
             #:with vs (if (attribute ooo) #'(v* ooo) #'(v1))
             #:with es (if (attribute ooo) #'(e/es ooo) #'(e/es))
             (template
-             (let ()
-               (define ctx (make-syntax-introducer))
-               (define ctx2 (make-syntax-introducer #t))
-               (invariant-assertion (λ (ll) (and (list? ll)
-                                                 (andmap identifier? ll)))
-                                    (syntax->list #'vs))
-               (define (add-scopes stx)
-                 (ctx (internal-definition-context-introduce (the-def-ctx)
-                                                             stx
-                                                             'add)
-                      'add))
-               (for ([binding (in-syntax #'vs)]
-                     [stx-value (in-syntax #'es)])
-                 (let ([vvv (func (add-scopes stx-value))])
-                   (syntax-local-bind-syntaxes (list (ctx binding))
-                                             (if (syntax? vvv) vvv #`'#,vvv)
-                                             (the-def-ctx))))
-               (with-syntax ([(vs x)
-                              (ctx2 (add-scopes #'(vs x)))])
-                 code ...)))]))
+              (with-syntax ([(vs x) (with-rec-bindings-f #'vs #'es #'x func)])
+                code ...))]))
 
        (define (trampoline-eval codee)
          (syntax-local-eval codee))
-       
+
        (provide
 
         with-bindings
         with-rec-bindings
-        
+
         start-tl-redirections
         f-start-tl-redirections
         )
@@ -1891,6 +1905,7 @@ will be written in @tc[racket], not @tc[typed/racket]).
                   syntax/id-table
                   syntax/stx
                   syntax/apply-transformer
+                  ee-lib
                   racket/pretty
                   auto-syntax-e
                   debug-scopes
