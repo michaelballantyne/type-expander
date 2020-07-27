@@ -420,33 +420,17 @@ identifier would have to implement the @tc[prop:rename-transformer],
 @tc[prop:match-expander] and @tc[prop:type-expander] properties, respectively.
 
 @CHUNK[<type-expander-environment>
-       (define patched (make-free-id-table))
+       (define fallback-env (make-free-id-table))
+       (define (bind-type-expander! id v)
+         (bind! id 'type-expander)
+         (free-id-table-set! fallback-env (syntax-local-introduce id) v))
        (define (lookup-type-expander type-expander-id)
-         (or (let ([v (lookup type-expander-id has-prop:type-expander?)])
-               (and (not (eq? unbound v)) v))
-             (free-id-table-ref patched
-                                type-expander-id
-                                #f)))
-
-       (define (ensure-ctx f)
-         (if (current-bind-ctx)
-           (f)
-           (let ([ctx (syntax-local-make-definition-context)])
-             (parameterize ([current-bind-ctx ctx]
-                            [current-def-ctx ctx]
-                            [current-ctx-id (gensym 'with-scope-ctx)])
-               (f)))))
-
-       (define-syntax-rule (start-tl-redirections . rest)
-         (ensure-ctx
-           (lambda ()
-             . rest)))
-
-       (define-syntax-rule (f-start-tl-redirections f)
-         (λ l (start-tl-redirections (apply f l))))
-
-       (define (to-syntax v)
-         (if (syntax? v) v #`#,v))
+         (let ([env-v (lookup type-expander-id type-expander?)])
+           (if (not (eq? env-v unbound))
+             env-v
+             (free-id-table-ref fallback-env
+                                (syntax-local-introduce type-expander-id)
+                                #f))))
 
        (define (with-bindings-f vs vals x f)
          (with-scope sc
@@ -456,7 +440,7 @@ identifier would have to implement the @tc[prop:rename-transformer],
 
            (for ([binding (in-syntax vs)]
                  [value vals])
-             (bind! (add-scope binding sc) (to-syntax value)))
+             (bind-type-expander! (add-scope binding sc) value))
 
            (f (map (lambda (stx) (add-scope stx sc))
                 (list vs x)))))
@@ -481,8 +465,8 @@ identifier would have to implement the @tc[prop:rename-transformer],
            (for ([binding (in-syntax vs)]
                  [e (in-syntax es)])
              (let ([value (func (add-scope e sc1))])
-               (bind! (add-scope binding sc1)
-                      (to-syntax value))))
+               (bind-type-expander! (add-scope binding sc1)
+                                    value)))
 
            (with-scope sc2
              (f (map (lambda (stx) (add-scope
@@ -505,13 +489,8 @@ identifier would have to implement the @tc[prop:rename-transformer],
          (eval-transformer codee))
 
        (provide
-
         with-bindings
-        with-rec-bindings
-
-        start-tl-redirections
-        f-start-tl-redirections
-        )
+        with-rec-bindings)
        ]
 
 @chunk[<prop:type-expander>
@@ -621,7 +600,7 @@ which are bound to type expanders. These fall into three cases:
   @racket[(tl-redirections)] binding table.}
  @item{The identifier has been patched via @racket[patch-type-expander], i.e.
   a type expander has been globally attached to an existing identifier, in which
-  case the type expander is stored within the @racket[patched]
+  case the type expander is stored within the @racket[fallback-env]
   free identifier table.}]
 
 @chunk[<expand-type-syntax-classes>
@@ -670,10 +649,9 @@ one of the three possible ways described above.
          (-> identifier? syntax? syntax?)
          (let ([val (lookup-type-expander type-expander-id)])
            <apply-type-expander-checks>
-           (local-apply-transformer ((get-prop:type-expander-value val) val)
-                                    stx
-                                    'expression
-                                    (if (current-def-ctx) (list (current-def-ctx)) '()))))]
+           (apply-as-transformer ((get-prop:type-expander-value val) val)
+                                 'expression
+                                 stx)))]
 
 The @racket[apply-type-expander] function checks that its
 @racket[type-expander-id] argument is indeed a type expander before attempting
@@ -699,7 +677,7 @@ table associating existing identifiers to the corresponding expander code:
            [(_ id:id expander-expr:expr)
             #`(begin
                 (begin-for-syntax
-                  (free-id-table-set! patched
+                  (free-id-table-set! fallback-env
                                       #'id
                                       (type-expander #,(syntax/loc this-syntax
                                                          expander-expr)))))]))]
@@ -815,7 +793,6 @@ many different cases.
 
 @CHUNK[<expand-type>
        (define (expand-type stx [applicable? #f])
-         (start-tl-redirections
           <expand-type-syntax-classes>
           (define (expand-type-process stx first-pass?)
             <expand-type-debug-before>
@@ -843,7 +820,7 @@ many different cases.
                  <expand-type-case-app-other>
                  <expand-type-case-app-fallback>
                  <expand-type-case-fallback-T>))))
-          (expand-type-process stx #t)))]
+          (expand-type-process stx #t))]
 
 @subsection{Cases handled by @racket[expand-type]}
 
@@ -1460,7 +1437,6 @@ definitions.
             #:with (tvar …) (if (attribute maybe-tvar) #'(maybe-tvar …) #'())
             #:with (tvar-not-ooo …) (filter (λ (tv) (not (free-identifier=? tv #'(… …))))
                                             (syntax->list #'(tvar …)))
-            (start-tl-redirections
              (with-bindings [(tvar-not-ooo …) (stx-map shadow-type-var
                                                        #'(tvar-not-ooo …))]
                             whole-rest
@@ -1469,13 +1445,12 @@ definitions.
                   (template
                    (define-type (?? (name tvar …) name)
                      type.expanded
-                     . rest))])))]))]
+                     . rest))]))]))]
 
 @subsection{@racket[define]}
 
 @chunk[<define>
        (define-syntax new-define
-         (f-start-tl-redirections
           (syntax-parser
             [(_ {~and (~seq _:new-maybe-kw-type-vars
                             (~or v:id
@@ -1490,13 +1465,12 @@ definitions.
              (template
               (define (?? (?@ . tvars.maybe)) (?? v formals.expanded)
                 (?? (?@ : type.expanded))
-                e ...))])))]
+                e ...))]))]
 
 @subsection{@racket[lambda]}
 
 @CHUNK[<lambda>
        (define-syntax new-lambda
-         (f-start-tl-redirections
           (syntax-parser
             [(_ {~with-tvars (tvars new-maybe-kw-type-vars)
                      args:new-lambda-formals
@@ -1504,13 +1478,12 @@ definitions.
                      e …})
              (template (lambda (?? (?@ . tvars.maybe)) args.expanded
                          (?? (?@ : ret-type.expanded))
-                         e ...))])))]
+                         e ...))]))]
 
 @subsection{@racket[case-lambda]}
 
 @CHUNK[<case-lambda>
        (define-syntax new-case-lambda
-         (f-start-tl-redirections
           (syntax-parser
             [(_ {~with-tvars (tvars new-maybe-kw-type-vars)
                      [args:new-lambda-formals
@@ -1522,7 +1495,7 @@ definitions.
                          [args.expanded
                           (?? (ann (let () e …) ret-type.expanded)
                               (?@ e …))]
-                         …))])))]
+                         …))]))]
 
 @subsection{@racket[struct]}
 
@@ -1531,7 +1504,6 @@ The name must be captured outside of the @racket[~with-tvars], as
 
 @chunk[<struct>
        (define-syntax new-struct
-         (f-start-tl-redirections
           (syntax-parser
             [(_ (~and
                  (~seq _:new-maybe-type-vars
@@ -1546,7 +1518,7 @@ The name must be captured outside of the @racket[~with-tvars], as
                      rest …}))
              (template (struct (?? tvars.maybe) name (?? parent)
                          ([field : type.expanded] ...)
-                         rest …))])))]
+                         rest …))]))]
 
 @subsection{@racket[define-struct/exec]}
 
@@ -1617,7 +1589,6 @@ and a polymorphic function.
 
 @chunk[<let>
        (define-syntax new-let
-         (f-start-tl-redirections
           (syntax-parser
             [(_ (~optional (~seq loop:id
                                  (~optional
@@ -1629,7 +1600,7 @@ and a polymorphic function.
               (let (?? (?@ loop (?? (?@ : return-type.expanded))))
                 (?@ . tvars)
                 ([(?@ . name.expanded) e] ...)
-                rest ...))])))]
+                rest ...))]))]
 
 @subsection{@racket[let*]}
 
@@ -1726,14 +1697,13 @@ Not all forms are supported for now.
 
 @chunk[<class>
        (define-syntax new-class
-         (f-start-tl-redirections
           (syntax-parser
             [(_ superclass-expr
                 {~with-tvars (tvars new-maybe-kw-type-vars)
                      clause:class-clause ...})
              (template (class superclass-expr
                          (?? (?@ . tvars.maybe))
-                         clause.expanded ...))])))]
+                         clause.expanded ...))]))]
 
 @subsection[#:tag "type-expander|other-forms"]{Other @racket[typed/racket]
  forms}
@@ -1929,7 +1899,7 @@ will be written in @tc[racket], not @tc[typed/racket]).
                   stx-type/c
                   type-expand!
                   debug-type-expander?
-                  patched
+                  fallback-env
                   make-type-expander
                   shadow-type-var)
 
