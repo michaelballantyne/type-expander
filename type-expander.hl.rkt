@@ -421,20 +421,26 @@ identifier would have to implement the @tc[prop:rename-transformer],
 
 @CHUNK[<type-expander-environment>
        (define patched (make-free-id-table))
-       (define the-def-ctx (make-parameter #f))
        (define (lookup-type-expander type-expander-id)
-         (or (let ([slv (syntax-local-value type-expander-id
-                                            (λ () #f)
-                                            (the-def-ctx))])
-               (and (has-prop:type-expander? slv) slv))
+         (or (let ([v (lookup type-expander-id has-prop:type-expander?)])
+               (and (not (eq? unbound v)) v))
              (free-id-table-ref patched
                                 type-expander-id
                                 #f)))
 
+       (define (ensure-ctx f)
+         (if (current-bind-ctx)
+           (f)
+           (let ([ctx (syntax-local-make-definition-context)])
+             (parameterize ([current-bind-ctx ctx]
+                            [current-def-ctx ctx]
+                            [current-ctx-id (gensym 'with-scope-ctx)])
+               (f)))))
+
        (define-syntax-rule (start-tl-redirections . rest)
-         (parameterize ([the-def-ctx (or (the-def-ctx)
-                                         (syntax-local-make-definition-context))])
-           . rest))
+         (ensure-ctx
+           (lambda ()
+             . rest)))
 
        (define-syntax-rule (f-start-tl-redirections f)
          (λ l (start-tl-redirections (apply f l))))
@@ -442,26 +448,18 @@ identifier would have to implement the @tc[prop:rename-transformer],
        (define (to-syntax v)
          (if (syntax? v) v #`#,v))
 
-       (define (with-bindings-f vs es x)
-         (define sc (make-syntax-introducer))
+       (define (with-bindings-f vs vals x f)
+         (with-scope sc
+           (invariant-assertion (λ (ll) (and (list? ll)
+                                             (andmap identifier? ll)))
+                                (syntax->list vs))
 
-         (invariant-assertion (λ (ll) (and (list? ll)
-                                           (andmap identifier? ll)))
-                              (syntax->list vs))
+           (for ([binding (in-syntax vs)]
+                 [value vals])
+             (bind! (add-scope binding sc) (to-syntax value)))
 
-         (define (add-scopes stx)
-           (internal-definition-context-introduce
-             (the-def-ctx)
-             (sc stx 'add)
-             'add))
-
-         (for ([binding (in-syntax vs)]
-               [value es])
-           (syntax-local-bind-syntaxes (list (add-scopes binding))
-                                       (to-syntax value)
-                                       (the-def-ctx)))
-         (map add-scopes
-              (list vs x)))
+           (f (map (lambda (stx) (add-scope stx sc))
+                (list vs x)))))
 
        (define-syntax with-bindings
          (syntax-parser
@@ -469,31 +467,28 @@ identifier would have to implement the @tc[prop:rename-transformer],
             #:with vs (if (attribute ooo) #'(v* ooo) #'(v1))
             #:with es (if (attribute ooo) #'e/es #'(list e/es))
             (template
-              (with-syntax ([(vs x) (with-bindings-f #'vs es #'x)])
-                  code ...))]))
+              (with-bindings-f #'vs es #'x
+                (lambda (res)
+                  (with-syntax ([(vs x) res])
+                    code ...))))]))
 
-       (define (with-rec-bindings-f vs es x func)
-         (define sc1 (make-syntax-introducer))
-         (define sc2 (make-syntax-introducer))
+       (define (with-rec-bindings-f vs es x func f)
+         (with-scope sc1
+           (invariant-assertion (λ (ll) (and (list? ll)
+                                             (andmap identifier? ll)))
+                                (syntax->list vs))
 
-         (invariant-assertion (λ (ll) (and (list? ll)
-                                           (andmap identifier? ll)))
-                              (syntax->list vs))
+           (for ([binding (in-syntax vs)]
+                 [e (in-syntax es)])
+             (let ([value (func (add-scope e sc1))])
+               (bind! (add-scope binding sc1)
+                      (to-syntax value))))
 
-         (define (add-scopes stx)
-           (internal-definition-context-introduce
-             (the-def-ctx)
-             (sc1 stx 'add)
-             'add))
-
-         (for ([binding (in-syntax vs)]
-               [stx-value (in-syntax es)])
-           (let ([value (func (add-scopes stx-value))])
-             (syntax-local-bind-syntaxes (list (add-scopes binding))
-                                         (to-syntax value)
-                                         (the-def-ctx))))
-         (map (lambda (stx) (sc2 (add-scopes stx)))
-              (list vs x)))
+           (with-scope sc2
+             (f (map (lambda (stx) (add-scope
+                                     (add-scope stx sc1)
+                                     sc2))
+                     (list vs x))))))
 
        (define-syntax with-rec-bindings
          (syntax-parser
@@ -501,11 +496,13 @@ identifier would have to implement the @tc[prop:rename-transformer],
             #:with vs (if (attribute ooo) #'(v* ooo) #'(v1))
             #:with es (if (attribute ooo) #'(e/es ooo) #'(e/es))
             (template
-              (with-syntax ([(vs x) (with-rec-bindings-f #'vs #'es #'x func)])
-                code ...))]))
+              (with-rec-bindings-f #'vs #'es #'x func
+                (lambda (res)
+                  (with-syntax ([(vs x) res])
+                    code ...))))]))
 
        (define (trampoline-eval codee)
-         (syntax-local-eval codee))
+         (eval-transformer codee))
 
        (provide
 
@@ -671,13 +668,12 @@ one of the three possible ways described above.
 @chunk[<apply-type-expander>
        (define/contract (apply-type-expander type-expander-id stx)
          (-> identifier? syntax? syntax?)
-         (let ([val (lookup-type-expander type-expander-id)]
-               [ctxx (make-syntax-introducer)])
+         (let ([val (lookup-type-expander type-expander-id)])
            <apply-type-expander-checks>
            (local-apply-transformer ((get-prop:type-expander-value val) val)
                                     stx
-                                    'expression)
-           #;(ctxx (((get-prop:type-expander-value val) val) (ctxx stx)))))]
+                                    'expression
+                                    (if (current-def-ctx) (list (current-def-ctx)) '()))))]
 
 The @racket[apply-type-expander] function checks that its
 @racket[type-expander-id] argument is indeed a type expander before attempting
