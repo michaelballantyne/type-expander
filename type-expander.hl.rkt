@@ -426,11 +426,10 @@ identifier would have to implement the @tc[prop:rename-transformer],
          (free-id-table-set! fallback-env (syntax-local-introduce id) v))
        (define (lookup-type-expander type-expander-id)
          (let ([env-v (lookup type-expander-id type-expander?)])
-           (if (not (eq? env-v unbound))
-             env-v
-             (free-id-table-ref fallback-env
-                                (syntax-local-introduce type-expander-id)
-                                #f))))
+           (or env-v
+               (free-id-table-ref fallback-env
+                                  (syntax-local-introduce type-expander-id)
+                                  #f))))
 
        (define (with-bindings-f vs vals x f)
          (with-scope sc
