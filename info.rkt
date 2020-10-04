@@ -8,7 +8,6 @@
                "hyper-literate"
                "auto-syntax-e"
                "debug-scopes"
-               "version-case"
                "ee-lib"))
 (define build-deps '("scribble-lib"
                      "racket-doc"

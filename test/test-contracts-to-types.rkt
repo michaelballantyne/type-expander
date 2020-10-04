@@ -1,16 +1,9 @@
 #lang type-expander
 (require racket/contract/base
          type-expander/contracts-to-types
-         typed/rackunit
-         version-case)
-(define-syntax (if-version≥6.5 stx)
-  (syntax-case stx ()
-    [(_ . rest)
-     (if (version>= (version) "6.5")
-         #'(begin . rest)
-         #'(begin))]))
+         typed/rackunit)
 
-(if-version≥6.5
+(begin
  (define-syntax-rule (check-written=? a b)
    (check-equal? (with-output-to-string (λ () a)) (format "~s\n" b)))
  (check-written=? (:contract→type (list/c 1 2 "str" (or/c integer? string?)))
